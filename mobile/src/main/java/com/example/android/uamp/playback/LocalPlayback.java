@@ -178,6 +178,9 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
 
             //noinspection ResourceType
             String source = track.getString(MusicProviderSource.CUSTOM_METADATA_TRACK_SOURCE);
+            if (source != null) {
+                source = source.replaceAll(" ", "%20"); // Escape spaces for URLs
+            }
 
             try {
                 createMediaPlayerIfNeeded();
@@ -222,7 +225,6 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
             }
             // while paused, retain the MediaPlayer but give up audio focus
             relaxResources(false);
-            giveUpAudioFocus();
         }
         mState = PlaybackStateCompat.STATE_PAUSED;
         if (mCallback != null) {
@@ -242,6 +244,7 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
             if (mMediaPlayer.isPlaying()) {
                 mState = PlaybackStateCompat.STATE_BUFFERING;
             }
+            registerAudioNoisyReceiver();
             mMediaPlayer.seekTo(position);
             if (mCallback != null) {
                 mCallback.onPlaybackStatusChanged(mState);
@@ -274,12 +277,12 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
      */
     private void tryToGetAudioFocus() {
         LogHelper.d(TAG, "tryToGetAudioFocus");
-        if (mAudioFocus != AUDIO_FOCUSED) {
-            int result = mAudioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN);
-            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                mAudioFocus = AUDIO_FOCUSED;
-            }
+        int result = mAudioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN);
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            mAudioFocus = AUDIO_FOCUSED;
+        } else {
+            mAudioFocus = AUDIO_NO_FOCUS_NO_DUCK;
         }
     }
 
@@ -288,10 +291,8 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
      */
     private void giveUpAudioFocus() {
         LogHelper.d(TAG, "giveUpAudioFocus");
-        if (mAudioFocus == AUDIO_FOCUSED) {
-            if (mAudioManager.abandonAudioFocus(this) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                mAudioFocus = AUDIO_NO_FOCUS_NO_DUCK;
-            }
+        if (mAudioManager.abandonAudioFocus(this) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            mAudioFocus = AUDIO_NO_FOCUS_NO_DUCK;
         }
     }
 
@@ -313,6 +314,7 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
                 pause();
             }
         } else {  // we have audio focus:
+            registerAudioNoisyReceiver();
             if (mAudioFocus == AUDIO_NO_FOCUS_CAN_DUCK) {
                 mMediaPlayer.setVolume(VOLUME_DUCK, VOLUME_DUCK); // we'll be relatively quiet
             } else {
@@ -383,6 +385,7 @@ public class LocalPlayback implements Playback, AudioManager.OnAudioFocusChangeL
         LogHelper.d(TAG, "onSeekComplete from MediaPlayer:", mp.getCurrentPosition());
         mCurrentPosition = mp.getCurrentPosition();
         if (mState == PlaybackStateCompat.STATE_BUFFERING) {
+            registerAudioNoisyReceiver();
             mMediaPlayer.start();
             mState = PlaybackStateCompat.STATE_PLAYING;
         }

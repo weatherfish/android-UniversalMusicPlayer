@@ -49,9 +49,12 @@ import com.google.android.gms.cast.framework.CastContext;
 import com.google.android.gms.cast.framework.CastSession;
 import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.cast.framework.SessionManagerListener;
+
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.List;
 
+import static com.example.android.uamp.utils.MediaIDHelper.MEDIA_ID_EMPTY_ROOT;
 import static com.example.android.uamp.utils.MediaIDHelper.MEDIA_ID_ROOT;
 
 /**
@@ -290,11 +293,13 @@ public class MusicService extends MediaBrowserServiceCompat implements
         // To ensure you are not allowing any arbitrary app to browse your app's contents, you
         // need to check the origin:
         if (!mPackageValidator.isCallerAllowed(this, clientPackageName, clientUid)) {
-            // If the request comes from an untrusted package, return null. No further calls will
-            // be made to other media browsing methods.
-            LogHelper.w(TAG, "OnGetRoot: IGNORING request from untrusted package "
+            // If the request comes from an untrusted package, return an empty browser root.
+            // If you return null, then the media browser will not be able to connect and
+            // no further calls will be made to other media browsing methods.
+            LogHelper.i(TAG, "OnGetRoot: Browsing NOT ALLOWED for unknown caller. "
+                    + "Returning empty browser root so all apps can use MediaController."
                     + clientPackageName);
-            return null;
+            return new MediaBrowserServiceCompat.BrowserRoot(MEDIA_ID_EMPTY_ROOT, null);
         }
         //noinspection StatementWithEmptyBody
         if (CarHelper.isValidCarPackage(clientPackageName)) {
@@ -318,7 +323,9 @@ public class MusicService extends MediaBrowserServiceCompat implements
     public void onLoadChildren(@NonNull final String parentMediaId,
                                @NonNull final Result<List<MediaItem>> result) {
         LogHelper.d(TAG, "OnLoadChildren: parentMediaId=", parentMediaId);
-        if (mMusicProvider.isInitialized()) {
+        if (MEDIA_ID_EMPTY_ROOT.equals(parentMediaId)) {
+            result.sendResult(new ArrayList<MediaItem>());
+        } else if (mMusicProvider.isInitialized()) {
             // if music library is ready, return immediately
             result.sendResult(mMusicProvider.getChildren(parentMediaId, getResources()));
         } else {
@@ -338,9 +345,7 @@ public class MusicService extends MediaBrowserServiceCompat implements
      */
     @Override
     public void onPlaybackStart() {
-        if (!mSession.isActive()) {
-            mSession.setActive(true);
-        }
+        mSession.setActive(true);
 
         mDelayedStopHandler.removeCallbacksAndMessages(null);
 
@@ -356,6 +361,7 @@ public class MusicService extends MediaBrowserServiceCompat implements
      */
     @Override
     public void onPlaybackStop() {
+        mSession.setActive(false);
         // Reset the delayed stop handler, so after STOP_DELAY it will be executed again,
         // potentially stopping the service.
         mDelayedStopHandler.removeCallbacksAndMessages(null);
